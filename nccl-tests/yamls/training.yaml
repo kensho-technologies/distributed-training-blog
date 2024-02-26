@@ -1,0 +1,64 @@
+# Service configuration for multinode.
+apiVersion: v1
+kind: Service
+metadata:
+  name: multinode
+  labels:
+    app: multinode
+spec:
+  clusterIP: None  # ClusterIP set to None for headless service.
+  ports:
+  - name: ssh
+    port: 22
+    targetPort: 22
+  selector:
+    app: multinode  # Selector for pods associated with this service.
+
+---
+
+# StatefulSet configuration for multinode training.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: multinode
+spec:
+  podManagementPolicy: Parallel
+  replicas: 2  # Replace with desired amount of training nodes.
+  selector:
+    matchLabels:
+      app: multinode  # Label for identifying the pods to the Service.
+  serviceName: multinode
+  template:
+    metadata:
+      annotations:
+        linkerd.io/inject: disabled  # Disable service mesh as it might interfere with networking.
+      labels:
+        app: multinode  # Label for identifying the pods to the Service.
+    spec:
+      containers:
+      - name: multinode
+        image: your-image-name  # Image built from Dockerfile.
+        args:
+        - /usr/sbin/sshd
+        - -D  # When this option is specified, sshd will not detach and does not become a daemon.
+        ports:
+        - containerPort: 22
+          name: ssh
+        resources:
+          limits:
+            cpu: 46000m
+            memory: 160Gi
+            nvidia.com/gpu: '4'  # Request the max available amount of GPUs in your machine.
+          requests:
+            cpu: 46000m
+            memory: 160Gi
+        volumeMounts:
+        - mountPath: /dev/shm  # Mounting emptyDir as shared memory for communication within nodes.
+          name: shm
+      nodeSelector:  # Replace with desired method of node scheduling.
+        infra.kensho.com/instancegroup: gpu-g4-12-nodes
+      volumes:
+      - emptyDir:
+          medium: Memory
+          sizeLimit: 13Gi
+        name: shm

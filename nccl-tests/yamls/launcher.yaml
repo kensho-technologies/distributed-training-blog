@@ -1,0 +1,70 @@
+# ConfigMap for multinode launcher.
+apiVersion: v1
+kind: ConfigMap
+data:
+  # MPI-style hostfile with hostnames of worker pods.
+  # max-slots=1 guarantees that the NCCL test process is limited to 1 per node.
+  hostfile: |
+    multinode-0 max-slots=1
+    multinode-1 max-slots=1
+    multinode-2 max-slots=1
+  # Config to automatically trust the SSH host, and alias pod hostnames to shorter hostnames.
+  ssh_config: |
+    Host multinode-*
+      Hostname %h.multinode.ml-dev.svc.cluster.local
+      StrictHostKeyChecking no
+metadata:
+  name: multinode
+
+---
+
+# Job configuration for multinode training launcher.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: multinode
+  labels:
+    app: multinode  # Label for identifying the launcher pod to the Service.
+spec:
+  template:
+    spec:
+      containers:
+      - image: your-image-name  # Image built from Dockerfile.
+        name: multinode
+        args:
+        - mpirun
+        - -np
+        - '2'  # Number of MPI processes, matches the number of training nodes in the StatefulSet.
+        - --hostfile
+        - /etc/ssh/hostfile  # Hostfile path matches with the ConfigMap mount path.
+        - ./build/all_reduce_perf
+        - -b
+        - '8'
+        - -e
+        - 128M
+        - -f
+        - '2'
+        - -g
+        - '4'  # Number of GPUs in the training instance.
+        ports:
+        - containerPort: 22
+          name: ssh
+        resources:
+          limits:
+            cpu: 100m
+            memory: 300Mi
+          requests:
+            cpu: 100m
+            memory: 300Mi
+        volumeMounts:
+        - mountPath: /etc/ssh/hostfile
+          name: ssh-config
+          subPath: hostfile
+        - mountPath: /etc/ssh/ssh_config
+          name: ssh-config
+          subPath: ssh_config
+      volumes:
+      - configMap:
+          name: multinode
+        name: ssh-config
+      restartPolicy: Never
